@@ -3,15 +3,23 @@ using Microsoft.ML.Data;
 
 namespace Foods
 {
-    
     public interface IFood
     {
         bool Answer { get; set; }
-
         abstract void SubmitAnswer(float random);
     }
     
-    public class FoodType1 : IFood
+    public abstract class BaseFood : IFood
+    {
+        public bool Answer { get; set; }
+
+        public virtual void SubmitAnswer(float random)
+        {
+            
+        }
+    }
+    
+    public class FoodType1 : BaseFood
     {
         public float Value1 { get; set; }
         
@@ -25,13 +33,13 @@ namespace Foods
             Random = value2;
         }
         
-        public void SubmitAnswer(float random)
+        public override void SubmitAnswer(float random)
         {
             Answer = Value1 + Random + random > 50;
         }
     }
     
-    public class FoodType2 : IFood
+    public class FoodType2 : BaseFood
     {
         public float Value1 { get; set; }
         
@@ -48,7 +56,7 @@ namespace Foods
             Value3 = value3;
         }
         
-        public void SubmitAnswer(float random)
+        public override void SubmitAnswer(float random)
         {
             Answer = Value1 + Random + Value3 + random > 50;
         }
