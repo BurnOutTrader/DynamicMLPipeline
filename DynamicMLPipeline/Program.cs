@@ -8,14 +8,11 @@ namespace Engine
 {
     public static class MainEngine
     {
-        public static Dictionary<Type, MLContext> Context = new();
-        public static Dictionary<Type, ITransformer> Model = new();
-        public static void Main()
+        public static Dictionary<Type, List<IFood>> GenerateFakeData()
         {
-            var Foods = new Dictionary<Type, List<IFood>>();
-            
-            //Generate random training data for the example
-            for (var i = 0; i < 3000; i++)
+            var foods = new Dictionary<Type, List<IFood>>();
+            //Generate random training data for the prediction example
+            for (var i = 0; i < 6000; i++)
             {
                 float random = new Random().Next(0, 10);
                 var food = new FoodType1(i, random/ 2);
@@ -23,15 +20,23 @@ namespace Engine
                 food.SubmitAnswer(random);
                 food2.SubmitAnswer(random);
                 
-                
-                if (!Foods.ContainsKey(food.GetType()))
+                if (!foods.ContainsKey(food.GetType()))
                 {
-                    Foods.Add(food.GetType(), new List<IFood>());
-                    Foods.Add(food2.GetType(), new List<IFood>());
+                    foods.Add(food.GetType(), new List<IFood>());
+                    foods.Add(food2.GetType(), new List<IFood>());
                 }
-                Foods[food.GetType()].Add(food);
-                Foods[food2.GetType()].Add(food2);
+                foods[food.GetType()].Add(food);
+                foods[food2.GetType()].Add(food2);
             }
+
+            return foods;
+        }
+        
+        public static Dictionary<Type, MLContext> Context = new();
+        public static Dictionary<Type, ITransformer> Model = new();
+        public static void Main()
+        {
+            var Foods = GenerateFakeData();
 
             //Build the DataView dynamically based on the concrete clas properties
             foreach (var food in Foods )
@@ -48,9 +53,8 @@ namespace Engine
 
                 foreach (var group in groupedByType)
                 {
-                    var DataView = SchemaFactory.Build(group.Key, group.First());
                     var concreteType = group.Key;
-                    var schemaDef = SchemaDefinition.Create(concreteType);
+                    var schemaDef = SchemaFactory.Build(group.Key, group.First());
                     
                     //The column names where the values are known before predictions
                     var featureColumnNames = FeatureColumnFiltering.GetFeautureColumnNames(concreteType);
@@ -97,6 +101,9 @@ namespace Engine
             
             Console.WriteLine("Models Trained proceeding to Test Predictions");
             
+            //generate test foods
+            var testFoods = GenerateFakeData();
+            
             foreach (var kvp in Context)
             {
                 var mlContext = kvp.Value;
@@ -120,7 +127,7 @@ namespace Engine
                 MethodInfo predictMethod = predictionEngine.GetType().GetMethod("Predict", new[] { foodType });
 
                 // Make predictions on each food item
-                foreach (var food in Foods[foodType])
+                foreach (var food in testFoods[foodType])
                 {
                     // Predict dynamically
                     var prediction = predictMethod.Invoke(predictionEngine, new[] { food });
