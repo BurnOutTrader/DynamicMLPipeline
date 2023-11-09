@@ -4,4 +4,4 @@ Allow inherited classes to be used as DataView by casting to concrete classes at
 
 Simplifies code by allowing many data types to call the same training method.
 
-there is no check for Array lengths to make sure they are all equal, this will have to be specific to use case.
+Note *There is no check for Array lengths to make sure they are all equal, this will have to be specific to use case.*
