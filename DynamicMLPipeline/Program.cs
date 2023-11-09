@@ -8,6 +8,8 @@ namespace Engine
 {
     public static class MainEngine
     {
+        public static Dictionary<Type, MLContext> Context = new();
+        public static Dictionary<Type, ITransformer> Model = new();
         public static void Main()
         {
             var Foods = new Dictionary<Type, List<IFood>>();
@@ -42,45 +44,22 @@ namespace Engine
 
                 // Group food items by their concrete types.
                 var groupedByType = food.Value.GroupBy(f => f.GetType()).ToList();
-
-                List<IDataView> dataViews = new List<IDataView>();
+                
 
                 foreach (var group in groupedByType)
                 {
+                    var DataView = SchemaFactory.Build(group.Key, group.First());
                     var concreteType = group.Key;
                     var schemaDef = SchemaDefinition.Create(concreteType);
                     
                     //The column names where the values are known before predictions
                     var featureColumnNames = FeatureColumnFiltering.GetFeautureColumnNames(concreteType);
-                    var allColumnNames = FeatureColumnFiltering.GetAllColumnNames(concreteType);
-
-                    foreach (var property in concreteType.GetProperties())
-                    {
-                        // Only include properties that are part of the feature column names or the label.
-                        if (!allColumnNames.Contains(property.Name) && property.Name != "Answer" && property.Name != "Random")
-                            continue;
-
-                        if (property.PropertyType == typeof(float[]))
-                        {
-                            int vectorSize = ((float[])property.GetValue(group.First())).Length;
-                            schemaDef[property.Name].ColumnType = new VectorDataViewType(NumberDataViewType.Single, vectorSize);
-                        }
-                        else if (property.PropertyType == typeof(float))
-                        {
-                            schemaDef[property.Name].ColumnType = NumberDataViewType.Single;
-                        }
-                        else if (property.PropertyType == typeof(bool))
-                        {
-                            schemaDef[property.Name].ColumnType = BooleanDataViewType.Instance;
-                        }
-                    }
+                    
 
                     // Load the data into an IDataView, applying the schema definition.
                     // Cast each element to the concrete type.
                     var dataView = LoadDataFromEnumerableDynamic(context, concreteType, group, schemaDef);
-                    dataViews.Add(dataView);
-
-                
+                    
                     var dataSplit = context.Data.TrainTestSplit(dataView, testFraction: 0.2);
                     var trainData = dataSplit.TrainSet;
                     var testData = dataSplit.TestSet;
@@ -101,18 +80,55 @@ namespace Engine
                     var predictions = model.Transform(testData);
                     var metrics = context.BinaryClassification.Evaluate(predictions, "Answer");
                     
+                    Console.WriteLine("Checking all properties were added to the schema for the concrete type");
                     foreach (PropertyInfo property in concreteType.GetProperties())
                     {
-
+                        
                         // Print the name and value of the property
                         Console.WriteLine($"{property.Name}");
                     }
 
                     Console.WriteLine($"MicroAccuracy: {metrics.Accuracy:F2}, LogLoss: {metrics.LogLoss:F2}, LogLossReduction: {metrics.LogLossReduction:F2}");
+                    
+                    Context.Add(food.Key, context);
+                    Model.Add(food.Key, model);
+                }
+            }
+            
+            Console.WriteLine("Models Trained proceeding to Test Predictions");
+            
+            foreach (var kvp in Context)
+            {
+                var mlContext = kvp.Value;
+                var model = Model[kvp.Key];
+                var foodType = kvp.Key; // Concrete type derived from IFood
+
+                // Get the CreatePredictionEngine method info with specific parameter types
+                MethodInfo createEngineMethod = mlContext.Model.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                    .Single(m => m.Name == "CreatePredictionEngine" 
+                                 && m.GetParameters().Length == 4 // Assuming the method has 4 parameters
+                                 && m.GetParameters()[0].ParameterType == typeof(ITransformer)
+                                 && m.GetParameters()[1].ParameterType == typeof(bool)
+                                 && m.GetParameters()[2].ParameterType == typeof(SchemaDefinition)
+                                 && m.GetParameters()[3].ParameterType == typeof(SchemaDefinition))
+                    .MakeGenericMethod(foodType, typeof(BinaryClassification)); // Assuming BinaryClassification is your output class
+
+                // Create the prediction engine dynamically
+                var predictionEngine = createEngineMethod.Invoke(mlContext.Model, new object[] { model, false, null, null });
+
+                // Get the method info for the Predict function of the prediction engine
+                MethodInfo predictMethod = predictionEngine.GetType().GetMethod("Predict", new[] { foodType });
+
+                // Make predictions on each food item
+                foreach (var food in Foods[foodType])
+                {
+                    // Predict dynamically
+                    var prediction = predictMethod.Invoke(predictionEngine, new[] { food });
+                    Console.WriteLine($"Prediction for {foodType.Name}: {(prediction as BinaryClassification).PredictedLabel}");
                 }
             }
         }
-        
+
         public static IDataView LoadDataFromEnumerableDynamic(MLContext context, Type dataType, IEnumerable<IFood> data, SchemaDefinition schemaDef)
         {
             // Get the method info for LoadFromEnumerable<>
@@ -159,34 +175,6 @@ namespace Engine
                         p.Name != "Answer" &&
                         (p.PropertyType == typeof(float) || p.PropertyType == typeof(float[]))
                     )
-                    .Select(p =>
-                    {
-                        // Get all custom attributes of the property and find the ColumnNameAttribute
-                        var customAttribute = p.GetCustomAttributes(false)
-                            .FirstOrDefault(attr => attr.GetType().Name == "ColumnNameAttribute");
-                        if (customAttribute != null)
-                        {
-                            // Get the Name property from the ColumnNameAttribute
-                            var nameProperty = customAttribute.GetType().GetProperty("Name");
-                            if (nameProperty != null)
-                            {
-                                return (string)nameProperty.GetValue(customAttribute);
-                            }
-                        }
-
-                        // If the attribute is not found or it does not have a Name property, return the property name itself
-                        return p.Name;
-                    })
-                    .ToArray();
-
-                return featureColumnNames;
-            }
-            
-            public static string[] GetAllColumnNames(Type foodType)
-            {
-                var bindingFlags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
-                var featureColumnNames = foodType
-                    .GetProperties(bindingFlags)
                     .Select(p =>
                     {
                         // Get all custom attributes of the property and find the ColumnNameAttribute
