@@ -100,6 +100,13 @@ namespace Engine
                 
                     var predictions = model.Transform(testData);
                     var metrics = context.BinaryClassification.Evaluate(predictions, "Answer");
+                    
+                    foreach (PropertyInfo property in concreteType.GetProperties())
+                    {
+
+                        // Print the name and value of the property
+                        Console.WriteLine($"{property.Name}");
+                    }
 
                     Console.WriteLine($"MicroAccuracy: {metrics.Accuracy:F2}, LogLoss: {metrics.LogLoss:F2}, LogLossReduction: {metrics.LogLossReduction:F2}");
                 }
