@@ -1,4 +1,4 @@
-Dynamic DataView and Pipelines for ML.NET.
+Dynamic Schema, DataView and Pipelines for ML.NET.
 
 Allow inherited classes to be used as DataView by casting to concrete classes at runtime, allows IDataView to use RuntTime object types which can be cast back to .GetType() at runtime. 
 
