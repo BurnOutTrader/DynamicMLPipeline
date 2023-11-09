@@ -4,7 +4,7 @@ using Microsoft.ML.Data;
 namespace Foods
 {
     
-    public interface  IFood
+    public interface IFood
     {
         bool Answer { get; set; }
 

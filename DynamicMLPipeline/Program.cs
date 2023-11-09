@@ -13,7 +13,7 @@ namespace Engine
             var Foods = new Dictionary<Type, List<IFood>>();
             
             //Generate random training data for the example
-            for (var i = 0; i < 300; i++)
+            for (var i = 0; i < 3000; i++)
             {
                 float random = new Random().Next(0, 10);
                 var food = new FoodType1(i, random/ 2);
@@ -52,11 +52,12 @@ namespace Engine
                     
                     //The column names where the values are known before predictions
                     var featureColumnNames = FeatureColumnFiltering.GetFeautureColumnNames(concreteType);
+                    var allColumnNames = FeatureColumnFiltering.GetAllColumnNames(concreteType);
 
                     foreach (var property in concreteType.GetProperties())
                     {
                         // Only include properties that are part of the feature column names or the label.
-                        if (!featureColumnNames.Contains(property.Name) && property.Name != "Answer" && property.Name != "Random")
+                        if (!allColumnNames.Contains(property.Name) && property.Name != "Answer" && property.Name != "Random")
                             continue;
 
                         if (property.PropertyType == typeof(float[]))
@@ -83,10 +84,8 @@ namespace Engine
                     var dataSplit = context.Data.TrainTestSplit(dataView, testFraction: 0.2);
                     var trainData = dataSplit.TrainSet;
                     var testData = dataSplit.TestSet;
-                
-                
+                    
                     //Build the pipeline
-
                     var options = new Microsoft.ML.Trainers.LbfgsLogisticRegressionBinaryTrainer.Options
                     {
                         LabelColumnName = "Answer",
@@ -150,7 +149,6 @@ namespace Engine
                 var featureColumnNames = foodType
                     .GetProperties(bindingFlags)
                     .Where(p =>
-                        p.Name != "Random" &&
                         p.Name != "Answer" &&
                         (p.PropertyType == typeof(float) || p.PropertyType == typeof(float[]))
                     )
