@@ -224,6 +224,8 @@ namespace Engine
         public static List<IFood> TestData = new();
         /// <summary>
         /// This is a method i use with a while loop to train from serialised data, to save memory.
+        ///
+        /// while loop can just be active while this method returns something, and keep training pipeline until it returns empty list, then move on to next step when all data consumed
         /// </summary>
         /// <returns></returns>
         public static List<IFood> LoadNextTrain(string foodFolder)
