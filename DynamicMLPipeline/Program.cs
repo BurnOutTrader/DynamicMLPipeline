@@ -46,9 +46,9 @@ namespace Engine
 
                 // Check if the food collection is empty or null.
                 if (foodList == null || !foodList.Any())
-                    throw new InvalidOperationException("The food collection is empty or null.");
+                    throw new InvalidOperationException("The food collection is empty or null. \n");
 
-                // Group food items by their concrete types.
+                // Group food items by their concrete types. (could just use a dictionary for this with type as key)
                 var groupedByType = foodList.GroupBy(f => f.GetType()).ToList();
                 
 
@@ -60,7 +60,6 @@ namespace Engine
                     //The column names where the values are known before predictions
                     var featureColumnNames = FeatureColumnFiltering.GetFeautureColumnNames(concreteType);
                     
-
                     // Load the data into an IDataView, applying the schema definition.
                     // Cast each element to the concrete type.
                     var dataView = LoadDataFromEnumerableDynamic(context, concreteType, group, schemaDef);
@@ -85,7 +84,7 @@ namespace Engine
                     var predictions = model.Transform(testData);
                     var metrics = context.BinaryClassification.Evaluate(predictions, "Answer");
                     
-                    Console.WriteLine("Checking all properties were added to the schema for the concrete type");
+                    Console.WriteLine($"\nChecking all properties were added to the schema for the concrete type: {group.Key} \n ");
                     foreach (PropertyInfo property in concreteType.GetProperties())
                     {
                         // Print the name and value of the property
@@ -100,7 +99,7 @@ namespace Engine
                 }
             }
             
-            Console.WriteLine("Models Trained proceeding to Test Predictions");
+            Console.WriteLine("\nModels Trained proceeding to Test Predictions \n");
             
             //generate test foods. returns a dictionary where the food type is the key. this could be used on creating foods to keep them stored.
             var testFoods = GenerateFakeData();
@@ -148,7 +147,7 @@ namespace Engine
             
             
             // Make predictions on each food item
-            foreach (var food in testFoods)
+            foreach (var food in testFoods.Take(2))
             {
                 // Predict dynamically
                 var prediction = predictMethod.Invoke(PredictionEngine[foodType], new[] { food });
