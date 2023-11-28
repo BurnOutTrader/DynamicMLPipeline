@@ -3,6 +3,7 @@ using System.Runtime.Serialization;
 using Foods;
 using Microsoft.ML;
 using Microsoft.ML.Data;
+using Newtonsoft.Json;
 
 namespace Engine
 {
@@ -39,16 +40,16 @@ namespace Engine
             var Foods = GenerateFakeData();
 
             //Build the DataView dynamically based on the concrete clas properties
-            foreach (var food in Foods )
+            foreach (var (type, foodList) in Foods )
             {
                 var context = new MLContext();
 
                 // Check if the food collection is empty or null.
-                if (food.Value == null || !food.Value.Any())
+                if (foodList == null || !foodList.Any())
                     throw new InvalidOperationException("The food collection is empty or null.");
 
                 // Group food items by their concrete types.
-                var groupedByType = food.Value.GroupBy(f => f.GetType()).ToList();
+                var groupedByType = foodList.GroupBy(f => f.GetType()).ToList();
                 
 
                 foreach (var group in groupedByType)
@@ -87,52 +88,72 @@ namespace Engine
                     Console.WriteLine("Checking all properties were added to the schema for the concrete type");
                     foreach (PropertyInfo property in concreteType.GetProperties())
                     {
-                        
                         // Print the name and value of the property
                         Console.WriteLine($"{property.Name}");
                     }
 
                     Console.WriteLine($"MicroAccuracy: {metrics.Accuracy:F2}, LogLoss: {metrics.LogLoss:F2}, LogLossReduction: {metrics.LogLossReduction:F2}");
                     
-                    Context.Add(food.Key, context);
-                    Model.Add(food.Key, model);
+                    //the food and conext are stored by the type of food they consume as a key
+                    Context.Add(type, context);
+                    Model.Add(type, model);
                 }
             }
             
             Console.WriteLine("Models Trained proceeding to Test Predictions");
             
-            //generate test foods
+            //generate test foods. returns a dictionary where the food type is the key. this could be used on creating foods to keep them stored.
             var testFoods = GenerateFakeData();
-            
-            foreach (var kvp in Context)
+            foreach (var (type, context) in Context)
             {
-                var mlContext = kvp.Value;
-                var model = Model[kvp.Key];
-                var foodType = kvp.Key; // Concrete type derived from IFood
+                DynamicPredict(context, type, testFoods[type]);
+            }
+        }
 
-                // Get the CreatePredictionEngine method info with specific parameter types
-                MethodInfo createEngineMethod = mlContext.Model.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                    .Single(m => m.Name == "CreatePredictionEngine" 
-                                 && m.GetParameters().Length == 4 // Assuming the method has 4 parameters
-                                 && m.GetParameters()[0].ParameterType == typeof(ITransformer)
-                                 && m.GetParameters()[1].ParameterType == typeof(bool)
-                                 && m.GetParameters()[2].ParameterType == typeof(SchemaDefinition)
-                                 && m.GetParameters()[3].ParameterType == typeof(SchemaDefinition))
-                    .MakeGenericMethod(foodType, typeof(BinaryClassification)); // Assuming BinaryClassification is your output class
+        /// <summary>
+        /// We can still save our prediction engine as an generic object so we dont have to create it again for each prediction
+        /// </summary>
+        public static Dictionary<Type, object> PredictionEngine = new();
+        
+        /// <summary>
+        /// Here we are overriding the ML.Net tendency to only recognise base class properties by invoking a dynamic/reflective instance of the predict method
+        /// (sorry I am not a professional so my language is probably inaccurate.
+        /// </summary>
+        private static void DynamicPredict(MLContext context, Type type, List<IFood> testFoods)
+        {
+            var model = Model[type];
+            var foodType = type; // Concrete type derived from IFood
 
-                // Create the prediction engine dynamically
-                var predictionEngine = createEngineMethod.Invoke(mlContext.Model, new object[] { model, false, null, null });
+            //The real trick is this combined with the schema factory
+            // Get the CreatePredictionEngine method info with specific parameter types
+            MethodInfo createEngineMethod = context.Model.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .Single(m => m.Name == "CreatePredictionEngine" 
+                             && m.GetParameters().Length == 4 // Assuming the method has 4 parameters
+                             && m.GetParameters()[0].ParameterType == typeof(ITransformer)
+                             && m.GetParameters()[1].ParameterType == typeof(bool)
+                             && m.GetParameters()[2].ParameterType == typeof(SchemaDefinition)
+                             && m.GetParameters()[3].ParameterType == typeof(SchemaDefinition))
+                .MakeGenericMethod(foodType, typeof(BinaryClassification)); // Assuming BinaryClassification is your output class
 
-                // Get the method info for the Predict function of the prediction engine
-                MethodInfo predictMethod = predictionEngine.GetType().GetMethod("Predict", new[] { foodType });
-
-                // Make predictions on each food item
-                foreach (var food in testFoods[foodType])
-                {
-                    // Predict dynamically
-                    var prediction = predictMethod.Invoke(predictionEngine, new[] { food });
-                    Console.WriteLine($"Prediction for {foodType.Name}: {(prediction as BinaryClassification).PredictedLabel}");
-                }
+            
+            if (!PredictionEngine.ContainsKey(type))
+            {
+                //dynamically create the prediction engine and save it as a generic object to the dictionary, by the type of food it consumes.(key)
+                var predictionEngine = createEngineMethod.Invoke(context.Model, new object[] { model, false, null, null });
+                PredictionEngine.Add(type, predictionEngine);
+            }
+            
+            // Get the method info for the Predict function of the prediction engine
+            MethodInfo predictMethod = PredictionEngine[foodType].GetType().GetMethod("Predict", new[] { foodType });
+            
+            
+            // Make predictions on each food item
+            foreach (var food in testFoods)
+            {
+                // Predict dynamically
+                var prediction = predictMethod.Invoke(PredictionEngine[foodType], new[] { food });
+                
+                Console.WriteLine($"Prediction for {foodType.Name}: {(prediction as BinaryClassification).PredictedLabel}");
             }
         }
 
@@ -159,17 +180,11 @@ namespace Engine
             var castMethod = typeof(Enumerable).GetMethod(nameof(Enumerable.Cast)).MakeGenericMethod(targetType);
             return (IEnumerable<object>)castMethod.Invoke(null, new object[] { source });
         }
-
-
-        // Helper method to cast the elements of an IGrouping to the specified type
-        private static IEnumerable<object> CastGroup(IGrouping<Type, object> group, Type targetType)
-        {
-            // Use reflection to call Enumerable.Cast<T> on the elements of the group
-            var castMethod = typeof(Enumerable).GetMethod(nameof(Enumerable.Cast)).MakeGenericMethod(targetType);
-            return (IEnumerable<object>)castMethod.Invoke(null, new object[] { group.AsEnumerable() });
-        }
-
         
+
+        /// <summary>
+        /// Filters out columns that we dont want to include in our schema when making predictions
+        /// </summary>
         public static class FeatureColumnFiltering
         {
             //We are trying to predict "Answer" before we know "Random" So we ignore these columns as they will not be present before predictions
@@ -204,6 +219,49 @@ namespace Engine
 
                 return featureColumnNames;
             }
+        }
+
+
+        public static List<IFood> TestData = new();
+        /// <summary>
+        /// This is a method i use with a while loop to train from serialised data, to save memory.
+        /// </summary>
+        /// <returns></returns>
+        public static List<IFood> LoadNextTrain(string foodFolder)
+        {
+            var files = Directory.GetFiles(foodFolder);
+            if (!files.Any())
+            {
+                return null;
+            }
+            var foods = new List<IFood>();
+
+            foreach (var file in files)
+            {
+                var settings = new JsonSerializerSettings
+                {
+                    TypeNameHandling = TypeNameHandling.All
+                };
+                var foodList = JsonConvert.DeserializeObject<List<IFood>>(file, settings);
+
+                foods.AddRange(foodList);
+            }
+
+            if (foods == null || foods.Count == 0)
+            {
+                return null;
+            }
+            
+            var rng = new Random();
+            var shuffledFoodList = foods.OrderBy(a => rng.Next()).ToList();
+
+            var splitIndex = (int)(shuffledFoodList.Count * 0.95); 
+
+            var trainingData = shuffledFoodList.Take(splitIndex);
+            var testData = shuffledFoodList.Skip(splitIndex);
+            TestData.AddRange(testData);
+            
+            return trainingData.ToList();
         }
     }
 }
